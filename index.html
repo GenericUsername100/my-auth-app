@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JiyuuDayo Redux</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- Utils -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/showdown/1.9.1/showdown.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+    <!-- LIVE2D STACK - ROBUST CONFIGURATION -->
+    
+    <!-- 1. Cubism Core (The Engine) -->
+    <script src="https://cubism.live2d.com/sdk-web/cubismcore/live2dcubismcore.min.js"></script>
+
+    <!-- 2. PixiJS v6.5.8 (Must use the "browser" dist) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/6.5.8/browser/pixi.min.js"></script>
+
+    <!-- Note: pixi-live2d-display v0.4.0 is loaded by live2dManager.js to avoid conflicts -->
+</head>
+<body>
+
+    <!-- Base Color Layer -->
+    <div id="base-layer"></div>
+
+    <!-- Image Layer (Layer 0 / Background wallpaper) -->
+    <div id="background-layer"></div>
+
+    <!-- NEW: Live2D Canvas Layer (Layer 1) -->
+    <div id="live2d-wrapper">
+        <canvas id="live2d-canvas" width="800" height="1200"></canvas>
+    </div>
+    
+    <!-- Video Layer -->
+    <video id="background-video" loop muted autoplay playsinline></video>
+    
+    <!-- Overlay Layer -->
+    <div id="background-overlay"></div>
+
+    <!-- Navigation / Menu -->
+    <div class="nav-toggle" id="nav-toggle">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="white"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg>
+    </div>
+
+    <nav id="sidebar" class="sidebar">
+        <div class="sidebar-header">
+            <h2>JiyuuDayo</h2>
+            <button id="close-nav" class="icon-btn">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="white"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+            </button>
+        </div>
+
+        <!-- AUTH SECTION -->
+        <div id="auth-section" class="auth-section">
+            <div id="user-profile" class="hidden">
+                <img id="user-avatar" src="" alt="Avatar">
+                <span id="user-name-display"></span>
+                <button id="sign-out-btn" class="icon-btn" title="Sign Out">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M10.09 15.59L11.5 17l5-5-5-5-1.41 1.41L12.67 11H3v2h9.67l-2.58 2.59zM19 3H5a2 2 0 00-2 2v4h2V5h14v14H5v-4H3v4a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 002-2z"/></svg>
+                </button>
+            </div>
+            <div id="auth-buttons">
+                <button id="login-google" class="auth-btn google">Sign in with Google</button>
+                <button id="login-discord" class="auth-btn discord">Sign in with Discord</button>
+            </div>
+        </div>
+        <ul class="nav-links">
+            <li data-view="view-chat" class="active">Chat</li>
+            <li data-view="view-characters">Characters</li>
+            <li data-view="view-create" id="nav-create-btn">Create Character</li>
+            <li data-view="view-previous">Previous Chats</li>
+            <li id="open-settings-btn">Global Settings</li>
+            <li data-view="view-docs">Docs and Updates</li>
+        </ul>
+
+        <div id="sidebar-storage" class="sidebar-storage" title="Estimated storage usage">
+            <div>Storage used: <span id="storage-used">—</span></div>
+            <div style="font-size: 0.85rem; margin-top: 6px;">Tokens (context): <span id="storage-tokens">—</span></div>
+        </div>
+    </nav>
+
+    <!-- Main App Container -->
+    <div class="app-container">
+
+        <!-- VIEW: CHAT -->
+        <div id="view-chat" class="view-section active">
+            <div class="chat-window" id="chat-window">
+                <div id="chat-messages" class="chat-messages"></div>
+                <div id="context-warning" class="warning-text hidden">⚠️ Context limit reached</div>
+            </div>
+            <div class="input-area">
+                <div class="input-wrapper">
+                    <textarea id="user-input" placeholder="Type a message... (Type </r:Memory> to save to memory)" rows="1"></textarea>
+                    <button id="send-btn" aria-label="Send">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="white"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- VIEW: CHARACTERS -->
+        <div id="view-characters" class="view-section hidden">
+            <div class="section-header">
+                <h1>Character Library</h1>
+                <p>Select a character to begin chatting.</p>
+            </div>
+            <div id="character-grid" class="character-grid"></div>
+        </div>
+
+        <!-- VIEW: CREATE/EDIT CHARACTER -->
+        <div id="view-create" class="view-section hidden">
+            <div class="section-header">
+                <h1 id="create-view-title">Create Character</h1>
+            </div>
+            <div class="create-form-container glass-panel">
+                <div class="grid-form">
+                    <div class="field" style="position:relative;">
+                        <label>Name</label>
+                        <input type="text" id="char-name" placeholder="e.g. Seraphina">
+                        <div id="token-name" class="token-counter">0</div>
+                    </div>
+                    <div class="field">
+                        <label>Avatar (URL or Upload)</label>
+                        <div class="file-input-group">
+                            <input type="text" id="char-avatar-url" placeholder="https://...">
+                            <label class="file-btn" for="char-avatar-file" title="Upload avatar" aria-label="Upload avatar">
+                                <!-- page-with-folded-corner icon -->
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                                    <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9l-6-6z" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+                                    <path d="M14 3v6h6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                            </label>
+                            <input type="file" id="char-avatar-file" accept="image/*" style="display:none;">
+                        </div>
+                    </div>
+                    <div class="field full-width" style="position:relative;">
+                        <label>Short Description (Display on Card)</label>
+                        <textarea id="char-description" rows="2" maxlength="500" placeholder="A brief overview..."></textarea>
+                        <div id="token-desc" class="token-counter">0</div>
+                    </div>
+                    <div class="field full-width" style="position:relative;">
+                        <label>System Prompt</label>
+                        <textarea id="char-system-prompt" rows="6" placeholder="You are..."></textarea>
+                        <div id="token-system" class="token-counter">0</div>
+                    </div>
+                    <div class="field full-width" style="position:relative;">
+                        <label>Initial Message</label>
+                        <textarea id="char-initial-message" rows="2" maxlength="500" placeholder="Hello..."></textarea>
+                        <div id="token-initial" class="token-counter">0</div>
+                    </div>
+                    <div class="field">
+                        <label>Background Image (URL or Upload)</label>
+                        <div class="file-input-group">
+                            <input type="text" id="char-bg-url" placeholder="https://...">
+                            <label class="file-btn alt" for="char-bg-file" title="Upload background" aria-label="Upload background">
+                                <!-- page-with-folded-corner icon (green variant) -->
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                                    <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9l-6-6z" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+                                    <path d="M14 3v6h6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                            </label>
+                            <input type="file" id="char-bg-file" accept="image/*" style="display:none;">
+                        </div>
+                    </div>
+                    <div class="field full-width">
+                        <label>Background Triggers [trigger][url][type][ms]</label>
+                        <div class="input-group" style="flex-direction:column; align-items:stretch;">
+                            <input type="text" id="char-trigger-input" placeholder="[anger][http://img.jpg][dissolve][500]">
+                            <button id="char-add-trigger-btn" style="margin-top:8px; width:100%;">Add</button>
+                        </div>
+                        <div id="char-trigger-list" class="trigger-list"></div>
+                    </div>
+                    
+                    <!-- NEW: Live2D Expression Triggers -->
+                    <div class="field full-width">
+                        <label>Live2D Expression Triggers</label>
+                        <div style="font-size:0.8em; color:#aaa; margin-bottom:5px;">
+                            Define words/tags that trigger animations. (e.g., "[laugh]" -> "Motion: laugh_001")
+                        </div>
+                        <div class="input-group" style="flex-direction:column; align-items:stretch;">
+                            <input type="text" id="char-exp-trigger" placeholder="Trigger (e.g. [smile])" style="width:100%;">
+                            <select id="char-exp-select" style="margin-top:8px; width:100%; background:#2c3e50; color:white; border:none; padding:6px 10px;">
+                                <option value="">Select Animation...</option>
+                            </select>
+                            <button id="char-add-exp-btn" style="margin-top:8px; width:100%;">Add</button>
+                        </div>
+                        <div id="char-exp-list" class="trigger-list"></div>
+                        <button type="button" id="refresh-live2d-list" style="margin-top:5px; width:100%; padding:6px; background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); color:#ccc; cursor:pointer; border-radius:4px;">
+                            Refresh Available Animations from Model
+                        </button>
+                    </div>
+                    <!-- END NEW BLOCK -->
+                    <div class="field full-width">
+                        <label>Live2D Model (optional .zip)</label>
+                        <div id="char-live2d-dropzone" class="file-dropzone">
+                            <input type="file" id="char-live2d-file" accept=".zip" />
+                            <div class="drop-hint">Drag & drop Live2D .zip here or click to choose (saved with character)</div>
+                        </div>
+                        <div id="char-live2d-filename" style="margin-top:8px;color:#aaa;font-size:0.9rem;"></div>
+                    </div>
+                </div>
+
+                <details>
+                    <summary>Advanced Schemas & Filters</summary>
+                    <div class="grid-form">
+                        <div class="field full-width">
+                            <label>User Input Template</label>
+                            <input type="text" id="char-input-template" placeholder='User said: "{{text}}"'>
+                        </div>
+                        <div class="field full-width">
+                            <label>Display Output Filters</label>
+                            <div class="input-group" style="flex-direction: column; align-items: stretch; gap:8px;">
+                                <input type="text" id="char-regex-pattern" placeholder="Regex Pattern">
+                                <input type="text" id="char-regex-replace" placeholder="Replacement">
+                                <button id="char-add-regex-btn">Add Rule</button>
+                            </div>
+                            <div id="char-regex-list" class="trigger-list"></div>
+                        </div>
+                    </div>
+                </details>
+
+                <details>
+                    <summary>Character API Parameters</summary>
+                    <div class="grid-form">
+                        <div class="field">
+                            <label>API Provider</label>
+                            <select id="char-api-provider">
+                                <option value="openai">OpenAI</option>
+                                <option value="gemini">Gemini</option>
+                                <option value="cohere">Cohere</option>
+                                <option value="openrouter">OpenRouter</option>
+                            </select>
+                        </div>
+                        <div class="field"><label>Model ID</label><input type="text" id="char-model"></div>
+                        <div class="field"><label>Temperature</label><input type="number" id="char-temp" step="0.1" max="2"></div>
+                        <div class="field"><label>Max Tokens</label><input type="number" id="char-tokens"></div>
+                        <div class="field"><label>Repetition Penalty</label><input type="number" id="char-rep-pen" step="0.01"></div>
+                        <div class="field"><label>Top P</label><input type="number" id="char-top-p" step="0.01"></div>
+                        <div class="field"><label>Top K</label><input type="number" id="char-top-k"></div>
+                    </div>
+                </details>
+
+                <div class="action-buttons">
+                    <button id="save-character-btn" class="primary-btn">Create Character</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- VIEW: PREVIOUS CHATS -->
+        <div id="view-previous" class="view-section hidden">
+            <div class="section-header">
+                <h1>Previous Chats</h1>
+                <p>Edit chat titles inline; hover to preview the last messages.</p>
+                <div style="width:100%; display:flex; justify-content:center; margin-top:12px;">
+                    <button id="clean-chats-btn" class="primary-btn small" style="max-width:240px;">Clean Chats</button>
+                </div>
+            </div>
+            <div id="previous-chats-grid" class="previous-grid"></div>
+            <div id="chat-preview-tooltip" class="chat-preview hidden"></div>
+        </div>
+
+        <!-- VIEW: DOCS AND UPDATES -->
+        <div id="view-docs" class="view-section hidden">
+            <div class="section-header">
+                <h1>Docs & Updates</h1>
+                <p>Latest changes and instructions.</p>
+            </div>
+            <div id="docs-content-area" class="glass-panel" style="line-height: 1.6;"></div>
+        </div>
+    </div>
+
+    <!-- SETTINGS MODAL (Global) -->
+    <div id="settings-overlay" class="modal-overlay hidden">
+        <div class="modal glass-panel">
+            <div class="modal-header">
+                <h2>Global Settings</h2>
+                <button class="close-modal">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="white"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+                </button>
+            </div>
+            
+            <div class="modal-tabs">
+                <button class="tab-btn active" data-tab="settings-tab">Config</button>
+                <button class="tab-btn" data-tab="resilience-tab">Resilience / Fallbacks</button>
+            </div>
+
+            <div class="modal-content">
+                <!-- Config Tab -->
+                <div id="settings-tab" class="tab-content active">
+                    <div class="setting-group">
+                        <h3>API Provider</h3>
+                        <div class="radio-group">
+                            <label><input type="radio" name="apiSelection" value="openai" checked> OpenAI</label>
+                            <label><input type="radio" name="apiSelection" value="gemini"> Gemini</label>
+                            <label><input type="radio" name="apiSelection" value="cohere"> Cohere</label>
+                        </div>
+                    </div>
+                    <div class="grid-form" id="api-config-container"></div>
+
+                    <details>
+                        <summary>Appearance</summary>
+                        <div class="grid-form">
+                            <div style="display:flex; gap:8px; align-items:center;">
+                                <div class="field" style="flex:1;">
+                                    <label>Context Window (messages)</label>
+                                    <input type="number" id="contextWindow" min="1" max="500" value="25">
+                                </div>
+                                <div class="field" style="width:220px;">
+                                    <label>Context Shift Rate
+                                        <span class="help-qa" title="If Context Window is 20 and Shift Rate is 5, the system should allow the count to hit 25, then truncate back down to 20." aria-label="Context Shift Rate help">?</span>
+                                    </label>
+                                    <input type="number" id="contextShiftRate" min="1" max="200" value="1">
+                                </div>
+                            </div>
+                            <div class="field"><label>User Name</label><input type="text" id="userName"></div>
+                            <div class="field"><label>Font Size</label><input type="range" id="fontSize" min="10" max="30"></div>
+                            <div class="field"><label>Msg Width</label><input type="range" id="msgWidth" min="30" max="100"></div>
+                            <div class="field"><label>Msg Opacity</label><input type="range" id="msgOpacity" min="10" max="100"></div>
+                        </div>
+                    </details>
+
+                    <div class="action-buttons">
+                        <button id="save-settings-btn" class="primary-btn">Save Globals</button>
+                        <button id="wipe-data-btn" class="danger-btn">Wipe Data</button>
+                        <button id="open-character-settings" class="primary-btn" style="margin-top:8px;">Character Settings (Live2D)</button>
+                    </div>
+                </div>
+                
+                <div id="resilience-tab" class="tab-content">
+                    <div class="resilience-header">
+                        <p>Fallback Chain Configuration.</p>
+                        <button id="add-fallback-btn" class="primary-btn small-btn">+ Add Fallback Node</button>
+                    </div>
+                    <div id="fallback-chain-list" class="fallback-list"></div>
+                    <div class="action-buttons"><button id="save-resilience-btn" class="primary-btn">Save Chain</button></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- NODE CONFIG MODAL -->
+    <div id="node-config-modal" class="modal-overlay hidden">
+        <div class="modal glass-panel" style="max-width: 600px;">
+            <div class="modal-header"><h2>Configure Fallback Node</h2><button id="close-node-modal" class="close-modal-btn">X</button></div>
+            <div class="modal-content">
+                <div class="provider-pills" id="node-provider-pills">
+                    <button data-val="openai" class="pill active">OpenAI</button>
+                    <button data-val="google" class="pill">Google</button>
+                    <button data-val="cohere" class="pill">Cohere</button>
+                </div>
+                <div class="grid-form">
+                    <div class="field full-width"><label>Friendly Name</label><input type="text" id="node-name"></div>
+                    <div class="field full-width"><label>Base URL</label><input type="text" id="node-base-url"></div>
+                    <div class="field"><label>Model ID</label><input type="text" id="node-model"></div>
+                    <div class="field"><label>API Key</label><input type="password" id="node-api-key"></div>
+                    <div class="field"><label>Temp</label><input type="number" id="node-temp" step="0.1" value="0.7"></div>
+                    <div class="field"><label>Top P</label><input type="number" id="node-top-p" step="0.01" value="1.0"></div>
+                    <div class="field"><label>Top K</label><input type="number" id="node-top-k" step="1" value="40"></div>
+                </div>
+                <div class="trigger-box">
+                    <h3>Failover Triggers</h3>
+                    <div class="grid-form">
+                        <div class="field full-width"><label>HTTP Error Codes</label><input type="text" id="node-trigger-codes" value="429, 500, 502, 503"></div>
+                        <div class="field"><label>Timeout (ms)</label><input type="number" id="node-trigger-timeout" value="15000"></div>
+                    </div>
+                </div>
+                <div class="action-buttons"><button id="save-node-btn" class="primary-btn">Add to Chain</button></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Gear Menu -->
+    <div class="gear-toggle" id="gear-toggle"><svg width="24" height="24" viewBox="0 0 24 24" fill="white"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.64l-1.92-3.32c-.12-.22-.39-.31-.61-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.42-.49-.42h-3.84c-.25 0-.45.18-.49.42l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.23-.09-.49 0-.61.22L2.74 8.87c-.12.22-.07.5.12.64l2.03 1.58c-.05.3-.07.62-.07.94 0 .33.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.64l1.92 3.32c.12.22.39.31.61.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.42.49.42h3.84c.25 0 .45-.18.49-.42l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.23.09.49 0 .61-.22l1.92-3.32c.12-.22.07-.5-.12-.64l-2.03-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg></div>
+    <div id="gear-menu" class="gear-menu hidden">
+        <button id="gear-new-chat" class="gear-menu-btn">Create New Chat</button>
+        <button id="gear-restart-chat" class="gear-menu-btn">Restart Chat</button>
+        <button id="gear-modify-system" class="gear-menu-btn">Modify System</button>
+    </div>
+
+    <!-- NEW: Character Settings Modal (Live2D upload + controls) -->
+    <div id="character-settings-overlay" class="modal-overlay hidden">
+        <div class="modal glass-panel" style="max-width: 720px;">
+            <div class="modal-header">
+                <h2>Character Settings — Live2D</h2>
+                <button class="close-modal" id="close-character-settings">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="white"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+                </button>
+            </div>
+            <div class="modal-content">
+                <div class="field full-width">
+                    <label>Upload Live2D Model (.zip export from Booth)</label>
+                    <div id="live2d-dropzone" class="file-dropzone">
+                        <input type="file" id="live2d-file-input" accept=".zip" />
+                        <div class="drop-hint">Drag & drop .zip here or click to choose</div>
+                    </div>
+                </div>
+
+                <div class="field full-width">
+                    <!-- confirmation checkbox removed as requested -->
+                 </div>
+
+                <div class="field">
+                    <!-- Removed manual Allow AI checkbox: AI control is always enabled by default -->
+                </div>
+
+                <div class="field full-width">
+                    <label>Detected model capabilities:</label>
+                    <div id="live2d-capabilities" style="min-height:40px;color:#ddd;padding:8px;border-radius:6px;background:rgba(0,0,0,0.2);"></div>
+                </div>
+
+                <!-- ADDED: The Progress Bar HTML was missing here! -->
+                <div id="live2d-progress-container" class="hidden" style="margin-bottom: 15px;">
+                    <div style="display:flex; justify-content:space-between; margin-bottom:5px; font-size:0.85rem; color:#ccc;">
+                        <span id="live2d-progress-text">Preparing...</span>
+                        <span id="live2d-progress-percent">0%</span>
+                    </div>
+                    <div style="width:100%; height:8px; background:rgba(255,255,255,0.1); border-radius:4px; overflow:hidden;">
+                        <div id="live2d-progress-bar" style="width:0%; height:100%; background:#4caf50; transition: width 0.1s linear;"></div>
+                    </div>
+                </div>
+
+                <div class="action-buttons">
+                    <button id="live2d-upload-btn" class="primary-btn">Load Model</button>
+                    <button id="live2d-unload-btn" class="secondary-btn">Unload Model</button>
+                </div>
+
+                <!-- NEW: AI Control Panel (inserted as requested) -->
+                <div class="settings-section">
+                    <!-- AI control toggle removed: AI control enabled by default -->
+                </div>
+
+                <!-- This panel appears when the toggle above is checked -->
+                <div id="ai-config-panel">
+                    <!-- Removed instructional text per request -->
+ 
+                    <div class="control-lists">
+                        <div class="list-column">
+                            <h4>Expressions</h4>
+                            <div id="expression-list" class="scroll-box">
+                                <!-- Javascript will put buttons here -->
+                                <div class="empty-msg">Load model to see list</div>
+                            </div>
+                        </div>
+                        <div class="list-column">
+                            <h4>Motions</h4>
+                            <div id="motion-list" class="scroll-box">
+                                <!-- Javascript will put buttons here -->
+                                <div class="empty-msg">Load model to see list</div>
+                            </div>
+                        </div>
+                    </div>
+ 
+                    <!-- NEW: Manual Mapper Section -->
+                    <div class="manual-mapper-section">
+                        <h4>Manual Mapping (Found <span id="found-count">0</span> disconnected files)</h4>
+                        <div class="mapper-controls">
+                            <select id="manual-file-select">
+                                <option value="">Select a file to test...</option>
+                            </select>
+                            <div class="mapper-buttons">
+                                <button id="manual-add-btn" class="mapper-btn add-btn">+ Add to List</button>
+                            </div>
+                        </div>
+                        <!-- Removed mapper hint text per request -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Error toast container for API errors -->
+    <div id="api-error-container" aria-live="polite" style="position:fixed; bottom:24px; left:50%; transform:translateX(-50%); z-index:2000; pointer-events:none;"></div>
+
+    <!-- Live2D Manager -->
+    <script type="module" src="live2dManager.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
